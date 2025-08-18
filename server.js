@@ -27,7 +27,8 @@ app.post('/upload', (req, res) => {
             let clientsCount = 0;
             wss.clients.forEach(client => {
                 if (client.readyState === WebSocket.OPEN) {
-                    client.send(req.body); // Buffer binaire
+                    const base64Image = req.body.toString('base64');
+                    client.send(base64Image);// Buffer binaire
                     clientsCount++;
                 }
             });
