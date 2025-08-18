@@ -47,7 +47,7 @@ wss.on('connection', (ws) => {
         if (typeof message === 'object' && message instanceof Buffer) {
             // Traitement des données binaires (image)
             console.log(`✅ Image reçue de l'ESP32 (${message.length} octets).`);
-
+            
             // Envoyer directement le buffer binaire à tous les clients Android
             broadcastImageToAndroidClients(message);
         
@@ -75,6 +75,7 @@ wss.on('connection', (ws) => {
                 }
 
             } else if (data.type === 'android') {
+                 // --- CORRECTION CLÉ ICI : Ajout du client à la liste lors de la première communication ---
                 if (!androidClients.includes(ws)) {
                     androidClients.push(ws);
                     console.log('🔗 Client Android connecté, total:', androidClients.length);
@@ -128,6 +129,10 @@ function broadcastToAndroidClients(data) {
 // Fonction pour diffuser l'image binaire aux clients Android
 function broadcastImageToAndroidClients(imageData) {
     androidClients = androidClients.filter(client => client.readyState === WebSocket.OPEN);
+    if (androidClients.length === 0) {
+        console.log("⚠️ Aucun client Android n'est connecté pour recevoir l'image.");
+        return;
+    }
     androidClients.forEach(client => {
         try {
             client.send(imageData); // Envoi direct du buffer
