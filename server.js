@@ -4,21 +4,20 @@ const http = require('http');
 const WebSocket = require('ws');
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
 
+// Render attribue le PORT via process.env.PORT
 const PORT = process.env.PORT || 3000;
 
-// Middleware pour recevoir des images JPEG
+// Middleware pour recevoir des images JPEG (max 5MB)
 app.use(express.raw({ type: 'image/jpeg', limit: '5mb' }));
 
-// Route POST pour recevoir les images
+// Route POST pour recevoir les images et les envoyer aux clients WebSocket
 app.post('/upload', (req, res) => {
     try {
         if (req.headers['content-type'] === 'image/jpeg' && req.body && req.body.length > 0) {
             console.log(`✅ Image reçue (${req.body.length} octets)`);
 
-            // Envoyer l’image brute à tous les clients WebSocket
+            // Envoyer l’image à tous les clients connectés
             let clientsCount = 0;
             wss.clients.forEach(client => {
                 if (client.readyState === WebSocket.OPEN) {
@@ -39,7 +38,13 @@ app.post('/upload', (req, res) => {
     }
 });
 
-// Gestion WebSocket
+// Créer le serveur HTTP
+const server = http.createServer(app);
+
+// Créer le WebSocket Server attaché au serveur HTTP
+const wss = new WebSocket.Server({ server });
+
+// Gestion des connexions WebSocket
 wss.on('connection', ws => {
     console.log('🔗 Nouveau client WebSocket connecté.');
 
