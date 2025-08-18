@@ -11,6 +11,34 @@ const wss = new WebSocket.Server({ server });
 let esp32Client = null;
 let androidClients = [];
 
+// Nouvelle route POST pour l'envoi d'images
+// Ceci écoute les requêtes HTTP (comme celles de votre script d'envoi)
+app.use(express.raw({
+    type: 'image/jpeg', // Limitez au type de contenu de l'image
+    limit: '10mb' // Taille maximale de l'image
+}));
+
+app.post('/upload', (req, res) => {
+    try {
+        if (!req.body || req.body.length === 0) {
+            return res.status(400).send('Aucun fichier reçu.');
+        }
+
+        const imageBuffer = req.body;
+        console.log(`✅ Image HTTP reçue (${imageBuffer.length} octets).`);
+
+        // Diffuse le buffer à tous les clients Android connectés via WebSocket
+        broadcastImageToAndroidClients(imageBuffer);
+
+        res.status(200).send('Image reçue et transmise aux clients WebSocket.');
+    } catch (error) {
+        console.error('❌ Erreur lors du traitement de l’image :', error);
+        res.status(500).send('Erreur interne du serveur.');
+    }
+});
+
+// --- Votre logique WebSocket existante commence ici ---
+
 wss.on('connection', (ws) => {
     console.log('🔗 Nouveau client WebSocket connecté.');
 
