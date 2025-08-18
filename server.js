@@ -1,67 +1,116 @@
 // server.js
+
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const cors = require('cors');
 
 const app = express();
-
-// Activer CORS si besoin pour tester depuis un autre client
-app.use(cors());
-
-// Middleware pour recevoir les images JPEG (et autres octets)
-app.use(express.raw({ type: '*/*', limit: '10mb' })); // Accept any content-type
-
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const PORT = process.env.PORT || 3000;
+let esp32Client = null;
+let androidClients = [];
 
-// ---------------- Route POST /upload ----------------
-app.post('/upload', (req, res) => {
-    try {
-        if (req.body && req.body.length > 0) {
-            console.log(`✅ Image reçue (${req.body.length} octets)`);
-
-            // Envoyer l’image à tous les clients WebSocket
-            let clientsCount = 0;
-            wss.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN) {
-                    const base64Image = req.body.toString('base64');
-                    client.send(base64Image);// Buffer binaire
-                    clientsCount++;
-                }
-            });
-
-            console.log(`📡 Image transmise à ${clientsCount} client(s).`);
-            // Ajouter un header pour éviter que Node-fetch plante
-            res.setHeader('Connection', 'close');
-            return res.status(200).send('Image reçue et envoyée aux clients.');
-        } else {
-            console.warn('⚠ Requête vide.');
-            return res.status(400).send('Requête vide ou format invalide.');
-        }
-    } catch (err) {
-        console.error('❌ Erreur lors du traitement de l’image :', err);
-        return res.status(500).send('Erreur interne serveur.');
-    }
-});
-
-// ---------------- WebSocket ----------------
-wss.on('connection', ws => {
+wss.on('connection', (ws) => {
     console.log('🔗 Nouveau client WebSocket connecté.');
 
-    ws.on('close', () => {
-        console.log('❌ Client WebSocket déconnecté.');
+    ws.on('message', (message) => {
+        // Détecter si le message est binaire (image) ou textuel (JSON)
+        if (typeof message === 'object' && message instanceof Buffer) {
+            // Traitement des données binaires (image)
+            console.log(`✅ Image reçue de l'ESP32 (${message.length} octets).`);
+
+            // Envoyer directement le buffer binaire à tous les clients Android
+            broadcastImageToAndroidClients(message);
+        
+        } else {
+            // Traitement des messages textuels (JSON)
+            let data;
+            try {
+                data = JSON.parse(message);
+                console.log('Message JSON reçu:', JSON.stringify(data, null, 2));
+            } catch (err) {
+                console.error('❌ Erreur de parsing JSON:', err.message);
+                ws.send(JSON.stringify({ type: 'error', message: `Erreur de parsing JSON: ${err.message}` }));
+                return;
+            }
+
+            // Gestion des connexions ESP32
+            if (data.type === 'esp32') {
+                esp32Client = ws;
+                console.log('🔗 ESP32 connecté.');
+                ws.send(JSON.stringify({ type: 'status', message: 'Connecté' }));
+
+                // Relayer les données de capteurs aux clients Android
+                if (data.waterLevel !== undefined || data.temperature !== undefined || data.turbidity !== undefined) {
+                    broadcastToAndroidClients(data);
+                }
+
+            } else if (data.type === 'android') {
+                if (!androidClients.includes(ws)) {
+                    androidClients.push(ws);
+                    console.log('🔗 Client Android connecté, total:', androidClients.length);
+                    ws.send(JSON.stringify({ type: 'status', message: 'Connecté' }));
+                }
+
+                // Relayer les commandes de l'application Android vers l'ESP32
+                if (esp32Client && esp32Client.readyState === WebSocket.OPEN) {
+                    esp32Client.send(JSON.stringify(data));
+                    console.log('Message envoyé à ESP32:', JSON.stringify(data, null, 2));
+                    ws.send(JSON.stringify({ type: 'status', message: 'Données envoyées à l\'ESP32' }));
+                } else {
+                    ws.send(JSON.stringify({ type: 'status', message: 'ESP32 non connecté' }));
+                    console.log('ESP32 non connecté, message non envoyé');
+                }
+
+            } else {
+                ws.send(JSON.stringify({ type: 'error', message: 'Type de client inconnu.' }));
+            }
+        }
     });
 
-    ws.on('error', err => {
-        console.error('⚠ Erreur WebSocket :', err.message);
+    ws.on('close', () => {
+        if (ws === esp32Client) {
+            esp32Client = null;
+            console.log('❌ ESP32 déconnecté.');
+            broadcastToAndroidClients({ type: 'status', message: 'ESP32 déconnecté' });
+        } else {
+            androidClients = androidClients.filter(client => client !== ws);
+            console.log('❌ Client Android déconnecté, total:', androidClients.length);
+        }
+    });
+
+    ws.on('error', (error) => {
+        console.error('❌ Erreur WebSocket:', error.message);
     });
 });
 
-// ---------------- Démarrage serveur ----------------
+// Fonction pour diffuser un message JSON aux clients Android
+function broadcastToAndroidClients(data) {
+    androidClients = androidClients.filter(client => client.readyState === WebSocket.OPEN);
+    androidClients.forEach(client => {
+        try {
+            client.send(JSON.stringify(data));
+        } catch (err) {
+            console.error('❌ Erreur lors de l\'envoi à un client Android:', err.message);
+        }
+    });
+}
+
+// Fonction pour diffuser l'image binaire aux clients Android
+function broadcastImageToAndroidClients(imageData) {
+    androidClients = androidClients.filter(client => client.readyState === WebSocket.OPEN);
+    androidClients.forEach(client => {
+        try {
+            client.send(imageData); // Envoi direct du buffer
+        } catch (err) {
+            console.error('❌ Erreur lors de l\'envoi de l\'image à un client Android:', err.message);
+        }
+    });
+}
+
+// Lancement du serveur
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-    console.log(`🚀 Serveur écoute sur le port ${PORT}`);
-    console.log(`👉 POST image sur /upload`);
+    console.log(`🚀 Serveur WebSocket démarré sur le port ${PORT}`);
 });
