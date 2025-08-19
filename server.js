@@ -34,14 +34,20 @@ app.post('/upload', (req, res) => {
 
 wss.on('connection', (ws) => {
     console.log('🔗 Nouveau client WebSocket connecté.');
-    // Stocke temporairement les nouveaux clients jusqu'à leur identification
-    const clientId = Date.now(); 
-    androidClients.set(clientId, ws); 
+    const clientId = Date.now();
+    androidClients.set(clientId, ws);
 
     ws.on('message', (message) => {
+        // La nouvelle logique de traitement des messages
         if (typeof message === 'object' && message instanceof Buffer) {
-            console.log(`✅ Image reçue de l'ESP32 (${message.length} octets).`);
-            broadcastImageToAndroidClients(message);
+            console.log(`✅ Message binaire reçu (${message.length} octets).`);
+            // Vérifier si c'est une image en utilisant un en-tête ou un marqueur spécifique
+            if (isJPEG(message)) {
+                console.log(`✅ Image JPEG valide reçue. Taille: ${message.length} octets.`);
+                broadcastImageToAndroidClients(message);
+            } else {
+                console.log('⚠️ Message binaire reçu mais ce n\'est pas une image JPEG valide.');
+            }
         } else {
             let data;
             try {
@@ -61,10 +67,8 @@ wss.on('connection', (ws) => {
                     broadcastToAndroidClients(data);
                 }
             } else if (data.type === 'android') {
-                // On a reçu le message d'identification, on peut utiliser le client
                 console.log('🔗 Client Android identifié.');
                 ws.send(JSON.stringify({ type: 'status', message: 'Connecté' }));
-
                 if (esp32Client && esp32Client.readyState === WebSocket.OPEN) {
                     esp32Client.send(JSON.stringify(data));
                     console.log('Message envoyé à ESP32:', JSON.stringify(data, null, 2));
@@ -85,7 +89,6 @@ wss.on('connection', (ws) => {
             console.log('❌ ESP32 déconnecté.');
             broadcastToAndroidClients({ type: 'status', message: 'ESP32 déconnecté' });
         } else {
-            // Suppression du client de la Map
             androidClients.forEach((client, key) => {
                 if (client === ws) {
                     androidClients.delete(key);
@@ -99,6 +102,13 @@ wss.on('connection', (ws) => {
         console.error('❌ Erreur WebSocket:', error.message);
     });
 });
+
+// Fonction pour vérifier si un buffer est un fichier JPEG valide
+function isJPEG(buffer) {
+    if (!buffer || buffer.length < 2) return false;
+    // Les deux premiers octets d'un fichier JPEG sont toujours 0xFFD8
+    return buffer[0] === 0xFF && buffer[1] === 0xD8;
+}
 
 function broadcastToAndroidClients(data) {
     androidClients.forEach(client => {
