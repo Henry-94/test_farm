@@ -24,14 +24,14 @@ app.post('/upload', (req, res) => {
         }
 
         const imageBuffer = req.body;
-        console.log(`✅ Image HTTP reçue (${imageBuffer.length} octets).`);
+        console.log(`Image HTTP reçue (${imageBuffer.length} octets).`);
 
         // Diffuse le buffer à tous les clients Android connectés via WebSocket
         broadcastImageToAndroidClients(imageBuffer);
 
         res.status(200).send('Image reçue et transmise aux clients WebSocket.');
     } catch (error) {
-        console.error('❌ Erreur lors du traitement de l’image :', error);
+        console.error('Erreur lors du traitement de l’image :', error);
         res.status(500).send('Erreur interne du serveur.');
     }
 });
@@ -43,7 +43,7 @@ wss.on('connection', (ws) => {
 
     ws.on('message', (message) => {
         if (typeof message === 'object' && message instanceof Buffer) {
-            console.log(`✅ Image reçue de l'ESP32 (${message.length} octets).`);
+            console.log(`Image reçue de l'ESP32 (${message.length} octets).`);
             broadcastImageToAndroidClients(message);
         } else {
             let data;
@@ -51,7 +51,7 @@ wss.on('connection', (ws) => {
                 data = JSON.parse(message);
                 console.log('Message JSON reçu:', JSON.stringify(data, null, 2));
             } catch (err) {
-                console.error('❌ Erreur de parsing JSON:', err.message);
+                console.error('Erreur de parsing JSON:', err.message);
                 ws.send(JSON.stringify({ type: 'error', message: `Erreur de parsing JSON: ${err.message}` }));
                 return;
             }
@@ -88,16 +88,16 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         if (ws === esp32Client) {
             esp32Client = null;
-            console.log('❌ ESP32 déconnecté.');
+            console.log('ESP32 déconnecté.');
             broadcastToAndroidClients({ type: 'status', message: 'ESP32 déconnecté' });
         } else {
             androidClients = androidClients.filter(client => client !== ws);
-            console.log('❌ Client Android déconnecté, total:', androidClients.length);
+            console.log('Client Android déconnecté, total:', androidClients.length);
         }
     });
 
     ws.on('error', (error) => {
-        console.error('❌ Erreur WebSocket:', error.message);
+        console.error('Erreur WebSocket:', error.message);
     });
 });
 
@@ -108,24 +108,23 @@ function broadcastToAndroidClients(data) {
         try {
             client.send(JSON.stringify(data));
         } catch (err) {
-            console.error('❌ Erreur lors de l\'envoi à un client Android:', err.message);
+            console.error('Erreur lors de l\'envoi à un client Android:', err.message);
         }
     });
 }
 
 // Fonction pour diffuser l'image binaire aux clients Android
 function broadcastImageToAndroidClients(imageData) {
-    // Le filtre ci-dessous a été retiré, car il n'est pas nécessaire et peut être la cause de l'erreur.
     androidClients = androidClients.filter(client => client.readyState === WebSocket.OPEN);
     if (androidClients.length === 0) {
-        console.log("⚠️ Aucun client Android n'est connecté pour recevoir l'image.");
+        console.log(" Aucun client Android n'est connecté pour recevoir l'image.");
         return;
     }
     androidClients.forEach(client => {
         try {
             client.send(imageData); // Envoi direct du buffer
         } catch (err) {
-            console.error('❌ Erreur lors de l\'envoi de l\'image à un client Android:', err.message);
+            console.error(' Erreur lors de l\'envoi de l\'image à un client Android:', err.message);
         }
     });
 }
