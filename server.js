@@ -1,4 +1,4 @@
-// server.js
+// server.js (code complet et corrigé)
 
 const express = require('express');
 const http = require('http');
@@ -25,6 +25,7 @@ app.post('/upload', (req, res) => {
         const imageBuffer = req.body;
         console.log(`✅ Image HTTP reçue (${imageBuffer.length} octets).`);
         
+        // Convertit le buffer en Base64 et le diffuse aux clients Android
         const base64Image = imageBuffer.toString('base64');
         broadcastImageToAndroidClients(base64Image);
         
@@ -40,7 +41,6 @@ wss.on('connection', (ws) => {
     const clientId = Date.now();
     androidClients.set(clientId, ws);
 
-    // ✅ NOUVEAU : Gérer les messages de ping et pong
     ws.on('ping', () => {
         console.log('💚 Ping reçu du client, envoi d\'un pong.');
         ws.pong();
@@ -52,16 +52,19 @@ wss.on('connection', (ws) => {
 
     ws.on('message', (message) => {
         if (typeof message === 'object' && message instanceof Buffer) {
+            // C'est un message binaire. On le traite comme une image.
             console.log(`✅ Message binaire reçu (${message.length} octets).`);
             if (isJPEG(message)) {
                 console.log(`✅ Image JPEG valide reçue. Taille: ${message.length} octets.`);
                 
+                // Convertit le buffer en Base64 pour l'envoi aux clients Android
                 const base64Image = message.toString('base64');
                 broadcastImageToAndroidClients(base64Image);
             } else {
                 console.log('⚠️ Message binaire reçu mais ce n\'est pas une image JPEG valide.');
             }
         } else {
+            // C'est un message texte. On le traite comme du JSON.
             let data;
             try {
                 data = JSON.parse(message);
