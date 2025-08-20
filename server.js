@@ -106,7 +106,6 @@ wss.on('connection', (ws) => {
     });
 });
 
-// Fonction pour vérifier si un buffer est un fichier JPEG valide
 function isJPEG(buffer) {
     if (!buffer || buffer.length < 2) return false;
     return buffer[0] === 0xFF && buffer[1] === 0xD8;
@@ -124,18 +123,20 @@ function broadcastToAndroidClients(data) {
     });
 }
 
-// Fonction corrigée pour envoyer des données Base64
+// CORRECTION : Envoi de l'image enveloppée dans un objet JSON
 function broadcastImageToAndroidClients(base64Data) {
     if (androidClients.size === 0) {
         console.log("⚠️ Aucun client Android n'est connecté pour recevoir l'image.");
         return;
     }
+    const message = JSON.stringify({
+        type: "image",
+        data: base64Data
+    });
     androidClients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             try {
-                // Envoyer la chaîne Base64 en tant que TEXTE pour garantir
-                // qu'elle est traitée comme une chaîne
-                client.send(base64Data, { binary: false });
+                client.send(message);
             } catch (err) {
                 console.error('❌ Erreur lors de l\'envoi de l\'image à un client Android:', err.message);
             }
