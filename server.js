@@ -40,6 +40,16 @@ wss.on('connection', (ws) => {
     const clientId = Date.now();
     androidClients.set(clientId, ws);
 
+    // ✅ NOUVEAU : Gérer les messages de ping et pong
+    ws.on('ping', () => {
+        console.log('💚 Ping reçu du client, envoi d\'un pong.');
+        ws.pong();
+    });
+
+    ws.on('pong', () => {
+        console.log('💙 Pong reçu du client.');
+    });
+
     ws.on('message', (message) => {
         if (typeof message === 'object' && message instanceof Buffer) {
             console.log(`✅ Message binaire reçu (${message.length} octets).`);
@@ -123,7 +133,6 @@ function broadcastToAndroidClients(data) {
     });
 }
 
-// CORRECTION : Envoi de l'image enveloppée dans un objet JSON
 function broadcastImageToAndroidClients(base64Data) {
     if (androidClients.size === 0) {
         console.log("⚠️ Aucun client Android n'est connecté pour recevoir l'image.");
