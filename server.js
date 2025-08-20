@@ -1,8 +1,9 @@
-// server.js (code complet et corrigé)
+// server.js (Code complet et corrigé)
 
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -11,7 +12,7 @@ const wss = new WebSocket.Server({ server });
 let esp32Client = null;
 let androidClients = new Map();
 
-// Nouvelle route POST pour l'envoi d'images
+// Route POST pour l'envoi d'images HTTP
 app.use(express.raw({
     type: 'image/jpeg',
     limit: '10mb'
@@ -24,11 +25,10 @@ app.post('/upload', (req, res) => {
         }
         const imageBuffer = req.body;
         console.log(`✅ Image HTTP reçue (${imageBuffer.length} octets).`);
-        
-        // Convertit le buffer en Base64 et le diffuse aux clients Android
+
         const base64Image = imageBuffer.toString('base64');
         broadcastImageToAndroidClients(base64Image);
-        
+
         res.status(200).send('Image reçue et transmise aux clients WebSocket.');
     } catch (error) {
         console.error('❌ Erreur lors du traitement de l’image :', error);
@@ -37,80 +37,54 @@ app.post('/upload', (req, res) => {
 });
 
 wss.on('connection', (ws) => {
-    console.log('🔗 Nouveau client WebSocket connecté.');
-    const clientId = Date.now();
-    androidClients.set(clientId, ws);
-
-    ws.on('ping', () => {
-        console.log('💚 Ping reçu du client, envoi d\'un pong.');
-        ws.pong();
-    });
-
-    ws.on('pong', () => {
-        console.log('💙 Pong reçu du client.');
-    });
+    console.log('🔗 Nouveau client WebSocket en attente d\'identification...');
 
     ws.on('message', (message) => {
-        if (typeof message === 'object' && message instanceof Buffer) {
-            // C'est un message binaire. On le traite comme une image.
-            console.log(`✅ Message binaire reçu (${message.length} octets).`);
-            if (isJPEG(message)) {
-                console.log(`✅ Image JPEG valide reçue. Taille: ${message.length} octets.`);
-                
-                // Convertit le buffer en Base64 pour l'envoi aux clients Android
-                const base64Image = message.toString('base64');
-                broadcastImageToAndroidClients(base64Image);
-            } else {
-                console.log('⚠️ Message binaire reçu mais ce n\'est pas une image JPEG valide.');
-            }
-        } else {
-            // C'est un message texte. On le traite comme du JSON.
-            let data;
-            try {
-                data = JSON.parse(message);
-                console.log('Message JSON reçu:', JSON.stringify(data, null, 2));
-            } catch (err) {
-                console.error('❌ Erreur de parsing JSON:', err.message);
-                ws.send(JSON.stringify({ type: 'error', message: `Erreur de parsing JSON: ${err.message}` }));
-                return;
-            }
+        let data;
+        try {
+            data = JSON.parse(message);
+        } catch (err) {
+            console.error('❌ Erreur de parsing JSON:', err.message);
+            // Fermer la connexion pour éviter les messages non valides
+            ws.close(1002, "Message non valide");
+            return;
+        }
 
-            if (data.type === 'esp32') {
-                esp32Client = ws;
-                console.log('🔗 ESP32 connecté.');
-                ws.send(JSON.stringify({ type: 'status', message: 'Connecté' }));
-                if (data.waterLevel !== undefined || data.temperature !== undefined || data.turbidity !== undefined) {
-                    broadcastToAndroidClients(data);
-                }
-            } else if (data.type === 'android') {
-                console.log('🔗 Client Android identifié.');
-                ws.send(JSON.stringify({ type: 'status', message: 'Connecté' }));
-                if (esp32Client && esp32Client.readyState === WebSocket.OPEN) {
-                    esp32Client.send(JSON.stringify(data));
-                    console.log('Message envoyé à ESP32:', JSON.stringify(data, null, 2));
-                    ws.send(JSON.stringify({ type: 'status', message: 'Données envoyées à l\'ESP32' }));
-                } else {
-                    ws.send(JSON.stringify({ type: 'status', message: 'ESP32 non connecté' }));
-                    console.log('ESP32 non connecté, message non envoyé');
-                }
-            } else {
-                ws.send(JSON.stringify({ type: 'error', message: 'Type de client inconnu.' }));
+        if (data.type === 'esp32') {
+            if (esp32Client) {
+                // Fermer l'ancienne connexion ESP32 s'il y en a une
+                esp32Client.close(1000, "Nouvelle connexion ESP32");
             }
+            esp32Client = ws;
+            console.log('🔗 ESP32 connecté.');
+            ws.send(JSON.stringify({ type: 'status', message: 'Connecté en tant qu\'ESP32.' }));
+        } else if (data.type === 'android') {
+            const clientId = Date.now();
+            androidClients.set(clientId, ws);
+            console.log('🔗 Client Android identifié. Total:', androidClients.size);
+            ws.send(JSON.stringify({ type: 'status', message: 'Connecté en tant qu\'Android.' }));
+        } else {
+            ws.send(JSON.stringify({ type: 'error', message: 'Type de client inconnu.' }));
         }
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
         if (ws === esp32Client) {
             esp32Client = null;
-            console.log('❌ ESP32 déconnecté.');
+            console.log(`❌ ESP32 déconnecté. Code: ${code}, Raison: ${reason}`);
             broadcastToAndroidClients({ type: 'status', message: 'ESP32 déconnecté' });
         } else {
+            let clientFound = false;
+            // Supprimer le client de la map
             androidClients.forEach((client, key) => {
                 if (client === ws) {
                     androidClients.delete(key);
+                    clientFound = true;
                 }
             });
-            console.log('❌ Client Android déconnecté, total:', androidClients.size);
+            if (clientFound) {
+                console.log(`❌ Client Android déconnecté. Total: ${androidClients.size}`);
+            }
         }
     });
 
@@ -118,11 +92,6 @@ wss.on('connection', (ws) => {
         console.error('❌ Erreur WebSocket:', error.message);
     });
 });
-
-function isJPEG(buffer) {
-    if (!buffer || buffer.length < 2) return false;
-    return buffer[0] === 0xFF && buffer[1] === 0xD8;
-}
 
 function broadcastToAndroidClients(data) {
     androidClients.forEach(client => {
@@ -156,7 +125,6 @@ function broadcastImageToAndroidClients(base64Data) {
     });
 }
 
-// Lancement du serveur
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
     console.log(`🚀 Serveur WebSocket démarré sur le port ${PORT}`);
