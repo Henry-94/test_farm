@@ -9,7 +9,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 let esp32Client = null;
-let androidClients = new Map(); // Utilisation d'une Map pour une meilleure gestion
+let androidClients = new Map();
 
 // Nouvelle route POST pour l'envoi d'images
 app.use(express.raw({
@@ -25,7 +25,6 @@ app.post('/upload', (req, res) => {
         const imageBuffer = req.body;
         console.log(`✅ Image HTTP reçue (${imageBuffer.length} octets).`);
         
-        // CORRECTION ICI : Encodage de l'image en Base64 avant l'envoi
         const base64Image = imageBuffer.toString('base64');
         broadcastImageToAndroidClients(base64Image);
         
@@ -47,7 +46,6 @@ wss.on('connection', (ws) => {
             if (isJPEG(message)) {
                 console.log(`✅ Image JPEG valide reçue. Taille: ${message.length} octets.`);
                 
-                // CORRECTION ICI : Encodage de l'image en Base64 avant l'envoi
                 const base64Image = message.toString('base64');
                 broadcastImageToAndroidClients(base64Image);
             } else {
@@ -135,8 +133,9 @@ function broadcastImageToAndroidClients(base64Data) {
     androidClients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             try {
-                // Envoi de la chaîne Base64
-                client.send(base64Data);
+                // Envoyer la chaîne Base64 en tant que TEXTE pour garantir
+                // qu'elle est traitée comme une chaîne
+                client.send(base64Data, { binary: false });
             } catch (err) {
                 console.error('❌ Erreur lors de l\'envoi de l\'image à un client Android:', err.message);
             }
