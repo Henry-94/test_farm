@@ -24,7 +24,11 @@ app.post('/upload', (req, res) => {
         }
         const imageBuffer = req.body;
         console.log(`✅ Image HTTP reçue (${imageBuffer.length} octets).`);
-        broadcastImageToAndroidClients(imageBuffer);
+        
+        // CORRECTION ICI : Encodage de l'image en Base64 avant l'envoi
+        const base64Image = imageBuffer.toString('base64');
+        broadcastImageToAndroidClients(base64Image);
+        
         res.status(200).send('Image reçue et transmise aux clients WebSocket.');
     } catch (error) {
         console.error('❌ Erreur lors du traitement de l’image :', error);
@@ -38,13 +42,14 @@ wss.on('connection', (ws) => {
     androidClients.set(clientId, ws);
 
     ws.on('message', (message) => {
-        // La nouvelle logique de traitement des messages
         if (typeof message === 'object' && message instanceof Buffer) {
             console.log(`✅ Message binaire reçu (${message.length} octets).`);
-            // Vérifier si c'est une image en utilisant un en-tête ou un marqueur spécifique
             if (isJPEG(message)) {
                 console.log(`✅ Image JPEG valide reçue. Taille: ${message.length} octets.`);
-                broadcastImageToAndroidClients(message);
+                
+                // CORRECTION ICI : Encodage de l'image en Base64 avant l'envoi
+                const base64Image = message.toString('base64');
+                broadcastImageToAndroidClients(base64Image);
             } else {
                 console.log('⚠️ Message binaire reçu mais ce n\'est pas une image JPEG valide.');
             }
@@ -106,7 +111,6 @@ wss.on('connection', (ws) => {
 // Fonction pour vérifier si un buffer est un fichier JPEG valide
 function isJPEG(buffer) {
     if (!buffer || buffer.length < 2) return false;
-    // Les deux premiers octets d'un fichier JPEG sont toujours 0xFFD8
     return buffer[0] === 0xFF && buffer[1] === 0xD8;
 }
 
@@ -122,7 +126,8 @@ function broadcastToAndroidClients(data) {
     });
 }
 
-function broadcastImageToAndroidClients(imageData) {
+// Fonction corrigée pour envoyer des données Base64
+function broadcastImageToAndroidClients(base64Data) {
     if (androidClients.size === 0) {
         console.log("⚠️ Aucun client Android n'est connecté pour recevoir l'image.");
         return;
@@ -130,7 +135,8 @@ function broadcastImageToAndroidClients(imageData) {
     androidClients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             try {
-                client.send(imageData);
+                // Envoi de la chaîne Base64
+                client.send(base64Data);
             } catch (err) {
                 console.error('❌ Erreur lors de l\'envoi de l\'image à un client Android:', err.message);
             }
